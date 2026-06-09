@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CIA Part3 アダプティブ・トレーナー（Drive同期版）</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Noto+Sans+JP:wght@300;400;500;700&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --surface2: #18181f;
+    --border: #252530;
+    --border-active: #3a3a50;
+    --text: #dcd8f0;
+    --text-dim: #7a7898;
+    --text-muted: #4a4868;
+    --accent: #7c6af5;
+    --accent-dim: #3d3578;
+    --accent-glow: rgba(124,106,245,0.15);
+    --correct: #4caf7d;
+    --correct-dim: #1a3d2b;
+    --wrong: #e05c5c;
+    --wrong-dim: #3d1a1a;
+    --warn: #d4a843;
+    --warn-dim: #3d2f10;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'Noto Sans JP', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+
+  /* ── Header ── */
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 100;
+  }
+  .logo {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+  }
+  .logo span { color: var(--text-dim); }
+  .status-bar {
+    display: flex;
+    gap: 20px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .status-bar b { color: var(--text); }
+
+  /* ── Main layout ── */
+  .container {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 32px 24px 80px;
+  }
+
+  /* ── Section bars ── */
+  .section-heatmap {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 28px;
+  }
+  .sec-chip {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 11px;
+    font-family: var(--mono);
+  }
+  .sec-chip .sec-label { color: var(--text-dim); margin-bottom: 4px; }
+  .sec-chip .sec-score { font-size: 20px; font-weight: 600; color: var(--text); }
+  .sec-chip .sec-bar {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    margin-top: 6px;
+    overflow: hidden;
+  }
+  .sec-chip .sec-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.6s ease;
+  }
+  .heat-low .sec-bar-fill { background: var(--wrong); }
+  .heat-mid .sec-bar-fill { background: var(--warn); }
+  .heat-ok  .sec-bar-fill { background: var(--correct); }
+
+  /* ── Question card ── */
+  .q-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 28px;
+    margin-bottom: 16px;
+    transition: border-color 0.2s;
+  }
+  .q-meta {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .tag-section { background: var(--accent-dim); color: var(--accent); }
+  .tag-diff-1 { background: #1a3d2b; color: #4caf7d; }
+  .tag-diff-2 { background: #3d2f10; color: #d4a843; }
+  .tag-diff-3 { background: #3d1a1a; color: #e05c5c; }
+  .tag-standard { background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border); }
+
+  .q-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+  .q-text {
+    font-size: 15px;
+    line-height: 1.75;
+    color: var(--text);
+    margin-bottom: 20px;
+  }
+
+  .choices { display: flex; flex-direction: column; gap: 8px; }
+  .choice-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .choice-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    background: var(--accent-glow);
+  }
+  .choice-btn .choice-key {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    min-width: 18px;
+    margin-top: 2px;
+  }
+  .choice-btn.correct {
+    border-color: var(--correct);
+    background: var(--correct-dim);
+    color: #a8f0c4;
+  }
+  .choice-btn.wrong {
+    border-color: var(--wrong);
+    background: var(--wrong-dim);
+    color: #f0a8a8;
+  }
+  .choice-btn.reveal-correct {
+    border-color: var(--correct);
+    background: var(--correct-dim);
+    opacity: 0.6;
+  }
+
+  /* ── Explanation ── */
+  .explanation {
+    margin-top: 16px;
+    background: var(--surface2);
+    border: 1px solid var(--border-active);
+    border-radius: 6px;
+    padding: 16px 20px;
+    font-size: 13px;
+    line-height: 1.8;
+    color: #c4c0dc;
+    display: none;
+  }
+  .explanation.show { display: block; }
+  .explanation .std-cite {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 11px;
+    background: var(--accent-dim);
+    color: var(--accent);
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-right: 4px;
+  }
+
+  /* ── Controls ── */
+  .controls {
+    display: flex;
+    gap: 10px;
+    margin-top: 32px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .btn {
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 10px 18px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    transition: all 0.15s;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+  }
+  .btn-primary:hover { background: #9080ff; }
+  .btn-secondary {
+    background: var(--surface2);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── Loading ── */
+  .loading-state {
+    text-align: center;
+    padding: 60px 24px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  .spinner {
+    width: 28px; height: 28px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Progress ── */
+  .progress-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .progress-track {
+    flex: 1;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), #a090ff);
+    border-radius: 2px;
+    transition: width 0.4s ease;
+  }
+
+  /* ── Empty / Init ── */
+  .init-panel {
+    text-align: center;
+    padding: 60px 24px;
+  }
+  .init-panel h2 {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    color: var(--text);
+  }
+  .init-panel p {
+    color: var(--text-dim);
+    font-size: 14px;
+    margin-bottom: 8px;
+    max-width: 500px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .score-badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 40px;
+    font-weight: 600;
+    color: var(--wrong);
+    margin: 20px 0 4px;
+  }
+  .score-sub { color: var(--text-dim); font-size: 12px; font-family: var(--mono); }
+
+  /* ── Result feedback ── */
+  .result-flash {
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    display: inline-block;
+    margin-bottom: 8px;
+  }
+  .result-flash.ok { background: var(--correct-dim); color: var(--correct); }
+  .result-flash.ng { background: var(--wrong-dim); color: var(--wrong); }
+
+  /* ── Nav ── */
+  .q-nav {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  .q-nav-dot {
+    width: 28px; height: 28px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    background: var(--surface2);
+    color: var(--text-muted);
+    transition: all 0.1s;
+  }
+  .q-nav-dot.current { border-color: var(--accent); color: var(--accent); }
+  .q-nav-dot.answered-ok { background: var(--correct-dim); border-color: var(--correct); color: var(--correct); }
+  .q-nav-dot.answered-ng { background: var(--wrong-dim); border-color: var(--wrong); color: var(--wrong); }
+  .q-nav-dot:hover { border-color: var(--accent-dim); }
+
+  @media (max-width: 600px) {
+    .section-heatmap { grid-template-columns: repeat(2, 1fr); }
+    .q-card { padding: 18px; }
+    header { flex-direction: column; gap: 8px; align-items: flex-start; }
+  }
+
+  /* ── Google Drive UI ── */
+  .gdrive-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 11px;
+    flex-wrap: wrap;
+  }
+  .gdrive-label { color: var(--text-muted); }
+  .gdrive-user { color: var(--text-dim); }
+  .gdrive-status {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-left: auto;
+  }
+  .gdrive-status.synced  { background: var(--correct-dim); color: var(--correct); }
+  .gdrive-status.syncing { background: var(--warn-dim); color: var(--warn); }
+  .gdrive-status.error   { background: var(--wrong-dim); color: var(--wrong); }
+  .gdrive-status.offline { background: #222; color: var(--text-muted); }
+  .btn-gdrive {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-gdrive:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-gdrive.connected { border-color: var(--correct); color: var(--correct); }
+
+  /* ── Setup panel ── */
+  .setup-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 28px;
+    max-width: 500px;
+    margin: 40px auto;
+    text-align: center;
+  }
+  .setup-panel h3 { font-size: 16px; margin-bottom: 8px; }
+  .setup-panel p { font-size: 13px; color: var(--text-dim); margin-bottom: 16px; line-height: 1.7; }
+  .setup-input {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    margin-bottom: 10px;
+  }
+  .setup-input:focus { outline: none; border-color: var(--accent); }
+  .setup-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: left;
+    line-height: 1.7;
+    margin-bottom: 16px;
+  }
+  .setup-hint a { color: var(--accent); text-decoration: none; }
+  .setup-hint a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">CIA<span>/</span>PART3 <span>ADAPTIVE TRAINER</span></div>
+  <div class="status-bar">
+    <span>総問題数 <b id="hdr-total">0</b></span>
+    <span>回答済 <b id="hdr-answered">0</b></span>
+    <span>正答率 <b id="hdr-acc">—</b></span>
+  </div>
+</header>
+
+<div class="gdrive-bar" id="gdrive-bar">
+  <span class="gdrive-label">Google Drive 同期</span>
+  <span class="gdrive-user" id="gdrive-user">未接続</span>
+  <button class="btn-gdrive" id="btn-gdrive-connect" onclick="gdriveConnect()">接続する</button>
+  <button class="btn-gdrive" id="btn-gdrive-save" onclick="gdriveSave()" style="display:none">保存</button>
+  <button class="btn-gdrive" id="btn-gdrive-load" onclick="gdriveLoad()" style="display:none">読込</button>
+  <button class="btn-gdrive" id="btn-gdrive-disconnect" onclick="gdriveDisconnect()" style="display:none">切断</button>
+  <span class="gdrive-status offline" id="gdrive-status">オフライン</span>
+</div>
+
+<div class="container">
+
+  <!-- Section heatmap -->
+  <div class="section-heatmap" id="heatmap">
+    <div class="sec-chip heat-low" id="chip-A">
+      <div class="sec-label">A. 部門の運営 (25%)</div>
+      <div class="sec-score" id="score-A">—</div>
+      <div class="sec-bar"><div class="sec-bar-fill" id="bar-A" style="width:0%"></div></div>
+    </div>
+    <div class="sec-chip heat-ok" id="chip-B">
+      <div class="sec-label">B. 監査の計画 (15%)</div>
+      <div class="sec-score" id="score-B">—</div>
+      <div class="sec-bar"><div class="sec-bar-fill" id="bar-B" style="width:0%"></div></div>
+    </div>
+    <div class="sec-chip heat-low" id="chip-C">
+      <div class="sec-label">C. 部門の品質 (15%)</div>
+      <div class="sec-score" id="score-C">—</div>
+      <div class="sec-bar"><div class="sec-bar-fill" id="bar-C" style="width:0%"></div></div>
+    </div>
+    <div class="sec-chip heat-low" id="chip-D">
+      <div class="sec-label">D. 業務結果・監視 (45%)</div>
+      <div class="sec-score" id="score-D">—</div>
+      <div class="sec-bar"><div class="sec-bar-fill" id="bar-D" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <!-- Question navigator -->
+  <div class="q-nav" id="q-nav"></div>
+
+  <!-- Progress -->
+  <div class="progress-row" id="progress-row" style="display:none">
+    <span id="prog-label">0 / 0</span>
+    <div class="progress-track"><div class="progress-fill" id="prog-fill" style="width:0%"></div></div>
+  </div>
+
+  <!-- Main content area -->
+  <div id="main-area">
+    <div class="init-panel">
+      <div class="score-badge">593</div>
+      <div class="score-sub">05/27/2026 — CIA Exam Part Three</div>
+      <h2 style="margin-top:24px">弱点を集中攻略する</h2>
+      <p>セクションD（45%配点）を最優先に、A・Cを強化する100問を生成します。<br>回答データはGoogleドライブに自動保存されます。</p>
+      <div style="margin-top:28px">
+        <button class="btn btn-primary" id="btn-start" onclick="startSession()">▶ 100問を生成して開始</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom controls -->
+  <div class="controls" id="bottom-controls" style="display:none">
+    <button class="btn btn-secondary" id="btn-prev" onclick="navigate(-1)">← 前へ</button>
+    <button class="btn btn-secondary" id="btn-next" onclick="navigate(1)">次へ →</button>
+    <button class="btn btn-secondary" id="btn-add" onclick="addMoreQuestions()" style="margin-left:auto">
+      ＋ 50問追加
+    </button>
+    <button class="btn btn-secondary" onclick="exportJSON()">JSON出力</button>
+  </div>
+
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────
+const state = {
+  questions: [],
+  answers: {},
+  currentIdx: 0,
+  loading: false,
+  sessionStats: { A: { ok:0, total:0 }, B: { ok:0, total:0 }, C: { ok:0, total:0 }, D: { ok:0, total:0 } }
+};
+
+// ── Google Drive ────────────────────────────────────────
+const GD = {
+  CLIENT_ID: '',       // ユーザーが設定
+  accessToken: null,
+  fileId: null,        // Drive上のファイルID（初回作成後に保存）
+  FILE_NAME: 'cia_part3_trainer_session.json',
+  SCOPE: 'https://www.googleapis.com/auth/drive.appdata'
+};
+
+function gdriveSetClientId(id) {
+  GD.CLIENT_ID = id.trim();
+  localStorage.setItem('gdrive_client_id', GD.CLIENT_ID);
+}
+
+function gdriveConnect() {
+  const saved = localStorage.getItem('gdrive_client_id');
+  if (saved) GD.CLIENT_ID = saved;
+
+  if (!GD.CLIENT_ID) {
+    showSetupPanel();
+    return;
+  }
+  // OAuth popup via Google Identity Services
+  const client = google.accounts.oauth2.initTokenClient({
+    client_id: GD.CLIENT_ID,
+    scope: GD.SCOPE,
+    callback: async (resp) => {
+      if (resp.error) {
+        setGDStatus('error', 'エラー: ' + resp.error);
+        return;
+      }
+      GD.accessToken = resp.access_token;
+      // Get user info
+      try {
+        const r = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: 'Bearer ' + GD.accessToken }
+        });
+        const u = await r.json();
+        document.getElementById('gdrive-user').textContent = u.email || 'ログイン済';
+      } catch(e) {}
+
+      document.getElementById('btn-gdrive-connect').style.display = 'none';
+      document.getElementById('btn-gdrive-save').style.display = '';
+      document.getElementById('btn-gdrive-load').style.display = '';
+      document.getElementById('btn-gdrive-disconnect').style.display = '';
+      document.getElementById('btn-gdrive-connect').classList.add('connected');
+      setGDStatus('synced', '接続済');
+
+      // Auto-load on connect
+      await gdriveLoad();
+    }
+  });
+  client.requestAccessToken();
+}
+
+function gdriveDisconnect() {
+  GD.accessToken = null;
+  GD.fileId = null;
+  document.getElementById('gdrive-user').textContent = '未接続';
+  document.getElementById('btn-gdrive-connect').style.display = '';
+  document.getElementById('btn-gdrive-save').style.display = 'none';
+  document.getElementById('btn-gdrive-load').style.display = 'none';
+  document.getElementById('btn-gdrive-disconnect').style.display = 'none';
+  setGDStatus('offline', 'オフライン');
+}
+
+function setGDStatus(type, text) {
+  const el = document.getElementById('gdrive-status');
+  el.className = 'gdrive-status ' + type;
+  el.textContent = text;
+}
+
+async function gdriveFindFile() {
+  const r = await fetch(
+    `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='${GD.FILE_NAME}'&fields=files(id,name,modifiedTime)`,
+    { headers: { Authorization: 'Bearer ' + GD.accessToken } }
+  );
+  const d = await r.json();
+  return d.files && d.files.length > 0 ? d.files[0] : null;
+}
+
+async function gdriveSave() {
+  if (!GD.accessToken) return;
+  setGDStatus('syncing', '保存中…');
+  try {
+    const data = JSON.stringify({
+      savedAt: new Date().toISOString(),
+      questions: state.questions,
+      answers: state.answers,
+      currentIdx: state.currentIdx,
+      sessionStats: state.sessionStats,
+      fileId: GD.fileId
+    });
+
+    let url, method;
+    if (GD.fileId) {
+      url = `https://www.googleapis.com/upload/drive/v3/files/${GD.fileId}?uploadType=media`;
+      method = 'PATCH';
+    } else {
+      // Create in appDataFolder (hidden, app-only)
+      const meta = await fetch('https://www.googleapis.com/drive/v3/files', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + GD.accessToken,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ name: GD.FILE_NAME, parents: ['appDataFolder'] })
+      });
+      const mj = await meta.json();
+      GD.fileId = mj.id;
+      localStorage.setItem('gdrive_file_id', GD.fileId);
+      url = `https://www.googleapis.com/upload/drive/v3/files/${GD.fileId}?uploadType=media`;
+      method = 'PATCH';
+    }
+
+    await fetch(url, {
+      method,
+      headers: {
+        Authorization: 'Bearer ' + GD.accessToken,
+        'Content-Type': 'application/json'
+      },
+      body: data
+    });
+    setGDStatus('synced', '保存済 ' + new Date().toLocaleTimeString('ja-JP'));
+  } catch(e) {
+    setGDStatus('error', '保存失敗');
+    console.error(e);
+  }
+}
+
+async function gdriveLoad() {
+  if (!GD.accessToken) return;
+  setGDStatus('syncing', '読込中…');
+  try {
+    // Try cached file ID first
+    if (!GD.fileId) GD.fileId = localStorage.getItem('gdrive_file_id');
+
+    let file = null;
+    if (GD.fileId) {
+      // Verify it still exists
+      const r = await fetch(`https://www.googleapis.com/drive/v3/files/${GD.fileId}`, {
+        headers: { Authorization: 'Bearer ' + GD.accessToken }
+      });
+      if (r.ok) file = { id: GD.fileId };
+      else { GD.fileId = null; localStorage.removeItem('gdrive_file_id'); }
+    }
+    if (!file) file = await gdriveFindFile();
+    if (!file) {
+      setGDStatus('synced', 'データなし（新規）');
+      return;
+    }
+
+    GD.fileId = file.id;
+    localStorage.setItem('gdrive_file_id', GD.fileId);
+
+    const r = await fetch(`https://www.googleapis.com/drive/v3/files/${GD.fileId}?alt=media`, {
+      headers: { Authorization: 'Bearer ' + GD.accessToken }
+    });
+    const d = await r.json();
+
+    if (d.questions && d.questions.length > 0) {
+      const ok = confirm(`Googleドライブに保存済みのセッションがあります。\n問題数: ${d.questions.length}問 / 回答済: ${Object.keys(d.answers||{}).length}問\n保存日時: ${new Date(d.savedAt).toLocaleString('ja-JP')}\n\n読み込みますか？`);
+      if (ok) {
+        state.questions = d.questions;
+        state.answers = d.answers || {};
+        state.currentIdx = d.currentIdx || 0;
+        state.sessionStats = d.sessionStats || state.sessionStats;
+        document.getElementById('bottom-controls').style.display = 'flex';
+        renderQuestion(state.currentIdx);
+        setGDStatus('synced', '読込完了');
+      } else {
+        setGDStatus('synced', '接続済');
+      }
+    } else {
+      setGDStatus('synced', 'データなし（新規）');
+    }
+  } catch(e) {
+    setGDStatus('error', '読込失敗');
+    console.error(e);
+  }
+}
+
+function showSetupPanel() {
+  const saved = localStorage.getItem('gdrive_client_id') || '';
+  document.getElementById('main-area').innerHTML = `
+    <div class="setup-panel">
+      <h3>Google Drive 連携の設定</h3>
+      <p>Google Cloud ConsoleでOAuth 2.0クライアントIDを作成し、<br>以下に貼り付けてください。</p>
+      <div class="setup-hint">
+        <b>設定手順：</b><br>
+        1. <a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a> を開く<br>
+        2. 新規プロジェクト作成 → 「APIとサービス」→「認証情報」<br>
+        3. 「認証情報を作成」→「OAuth 2.0 クライアントID」<br>
+        4. アプリの種類: <b>ウェブアプリケーション</b><br>
+        5. 承認済みのJavaScriptの生成元に <b>このファイルを開いているオリジン</b>（例: file:// または http://localhost）を追加<br>
+        6. Drive API を有効化（APIライブラリ → Google Drive API）
+      </div>
+      <input class="setup-input" id="client-id-input" placeholder="クライアントID（...apps.googleusercontent.com）" value="${saved}">
+      <button class="btn btn-primary" onclick="applyClientId()">保存して接続</button>
+    </div>`;
+}
+
+function applyClientId() {
+  const val = document.getElementById('client-id-input').value;
+  if (!val) return;
+  gdriveSetClientId(val);
+  // Restore init panel
+  document.getElementById('main-area').innerHTML = `
+    <div class="init-panel">
+      <div class="score-badge">593</div>
+      <div class="score-sub">05/27/2026 — CIA Exam Part Three</div>
+      <h2 style="margin-top:24px">弱点を集中攻略する</h2>
+      <p>セクションD（45%配点）を最優先に、A・Cを強化する100問を生成します。<br>回答データはGoogleドライブに自動保存されます。</p>
+      <div style="margin-top:28px">
+        <button class="btn btn-primary" id="btn-start" onclick="startSession()">▶ 100問を生成して開始</button>
+      </div>
+    </div>`;
+  gdriveConnect();
+}
+
+// Auto-save after each answer
+function autoSave() {
+  if (GD.accessToken) gdriveSave();
+}
+
+// ── Claude API call ────────────────────────────────────
+async function callClaude(systemPrompt, userMessage) {
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 8000,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userMessage }]
+    })
+  });
+  const data = await resp.json();
+  if (data.error) throw new Error("API Error: " + data.error.message);
+  const text = data.content.map(b => b.text || "").join("");
+  return text;
+}
+
+// ── Generate questions ─────────────────────────────────
+async function generateQuestions(count, existingAnswers) {
+  // Build weakness profile from session data
+  const profile = buildProfile(existingAnswers);
+
+  const systemPrompt = `あなたはCIA（公認内部監査人）Part3試験の専門問題作成者です。
+JSON形式のみで回答してください。前置きや説明文は不要です。マークダウンのコードブロック（\`\`\`json等）も使わないこと。
+必ず${count}要素ちょうどのJSON配列を返してください。配列の途中で切れないよう、簡潔に記述してください。
+
+以下の形式で返してください:
+[
+  {
+    "id": "一意のID（例: D-001）",
+    "section": "A",
+    "topic": "論点名（10字以内）",
+    "difficulty": 1,
+    "standard": "Standard 9.1",
+    "question": "問題文（80字以内）",
+    "choices": ["A. 選択肢", "B. 選択肢", "C. 選択肢", "D. 選択肢"],
+    "answer": "A",
+    "explanation": "解説（GIASスタンダードを引用、100字以内）"
+  }
+]
+
+出題配分（${count}問中）:
+- セクションD（個々の内部監査業務の結果とモニタリング）: ${Math.round(count*0.45)}問
+- セクションA（内部監査部門の運営）: ${Math.round(count*0.25)}問
+- セクションC（内部監査部門の品質）: ${Math.round(count*0.15)}問
+- セクションB（内部監査の計画）: ${Math.round(count*0.15)}問
+
+重要: 回答は純粋なJSON配列のみ。他のテキスト一切不要。`;
+
+  // Build answered topics to avoid exact repeats
+  const answeredTopics = existingAnswers
+    .filter(a => !a.correct)
+    .map(a => a.topic)
+    .slice(-20)
+    .join(", ");
+
+  const userMsg = `${count}問生成してください。
+不正解が多い論点（優先出題）: ${answeredTopics || "なし（初回）"}
+難易度分布: 易${Math.round(count*0.2)}問, 中${Math.round(count*0.5)}問, 難${Math.round(count*0.3)}問`;
+
+  const raw = await callClaude(systemPrompt, userMsg);
+
+  // Parse JSON
+  let parsed;
+  try {
+    const clean = raw.replace(/```json|```/g, "").trim();
+    parsed = JSON.parse(clean);
+  } catch(e) {
+    console.error("Parse error:", e, raw.slice(0, 200));
+    throw new Error("問題の生成に失敗しました。再試行してください。");
+  }
+  return parsed;
+}
+
+function buildProfile(existingAnswers) {
+  // Calculate how many questions per section based on weight + weakness
+  const weights = { D: 0.45, A: 0.25, C: 0.15, B: 0.15 };
+  // Boost weak sections
+  return {
+    D: 45, A: 25, C: 15, B: 15  // Initial: proportional to exam weight
+  };
+}
+
+// ── UI Rendering ───────────────────────────────────────
+function renderQuestion(idx) {
+  state.currentIdx = idx;
+  const q = state.questions[idx];
+  if (!q) return;
+
+  const answered = state.answers[idx];
+  const total = state.questions.length;
+
+  // Progress
+  const progRow = document.getElementById("progress-row");
+  progRow.style.display = "flex";
+  document.getElementById("prog-label").textContent = `${idx+1} / ${total}`;
+  document.getElementById("prog-fill").style.width = `${((idx+1)/total)*100}%`;
+
+  // Nav dots
+  const nav = document.getElementById("q-nav");
+  nav.innerHTML = state.questions.map((_, i) => {
+    const ans = state.answers[i];
+    let cls = "q-nav-dot";
+    if (i === idx) cls += " current";
+    else if (ans) cls += ans.correct ? " answered-ok" : " answered-ng";
+    return `<div class="${cls}" onclick="renderQuestion(${i})">${i+1}</div>`;
+  }).join("");
+
+  // Diff tag
+  const diffMap = { 1: ["tag-diff-1","易"], 2: ["tag-diff-2","中"], 3: ["tag-diff-3","難"] };
+  const [diffCls, diffLabel] = diffMap[q.difficulty] || ["tag-diff-1","易"];
+
+  // Choices
+  const choicesHtml = q.choices.map((c, ci) => {
+    const key = ["A","B","C","D"][ci];
+    let cls = "choice-btn";
+    let disabled = answered ? "disabled" : "";
+    if (answered) {
+      if (key === q.answer) cls += " reveal-correct";
+      if (key === answered.chosen) {
+        cls = answered.correct ? "choice-btn correct" : "choice-btn wrong";
+      }
+    }
+    return `<button class="${cls}" ${disabled} onclick="answerQuestion(${idx},'${key}')">
+      <span class="choice-key">${key}</span>
+      <span>${c.replace(/^[A-D]\.\s*/,"")}</span>
+    </button>`;
+  }).join("");
+
+  // Explanation
+  const expHtml = answered ? `
+    <div class="explanation show">
+      <div class="result-flash ${answered.correct ? 'ok':'ng'}">${answered.correct ? '✓ 正解' : '✗ 不正解 — 正答: ' + q.answer}</div><br>
+      <span class="std-cite">${q.standard}</span>
+      ${q.explanation}
+    </div>` : `<div class="explanation"></div>`;
+
+  const html = `
+    <div class="q-card">
+      <div class="q-meta">
+        <span class="tag tag-section">Section ${q.section}</span>
+        <span class="tag ${diffCls}">${diffLabel}</span>
+        <span class="tag tag-standard">${q.standard}</span>
+        <span class="tag tag-standard" style="color:var(--text-dim)">${q.topic}</span>
+      </div>
+      <div class="q-num">Q${idx+1} / ${total}</div>
+      <div class="q-text">${q.question}</div>
+      <div class="choices">${choicesHtml}</div>
+      ${expHtml}
+    </div>`;
+
+  document.getElementById("main-area").innerHTML = html;
+  updateHeatmap();
+  updateHeader();
+}
+
+function answerQuestion(idx, chosen) {
+  const q = state.questions[idx];
+  const correct = chosen === q.answer;
+
+  state.answers[idx] = { chosen, correct, section: q.section, topic: q.topic };
+
+  // Update stats
+  const sec = q.section;
+  if (!state.sessionStats[sec]) state.sessionStats[sec] = { ok:0, total:0 };
+  state.sessionStats[sec].total++;
+  if (correct) state.sessionStats[sec].ok++;
+
+  renderQuestion(idx);
+  autoSave();
+}
+
+function navigate(dir) {
+  const next = state.currentIdx + dir;
+  if (next >= 0 && next < state.questions.length) {
+    renderQuestion(next);
+  }
+}
+
+function updateHeatmap() {
+  ["A","B","C","D"].forEach(sec => {
+    const stat = state.sessionStats[sec];
+    if (!stat || stat.total === 0) return;
+    const rate = stat.ok / stat.total;
+    const pct = Math.round(rate * 100);
+    document.getElementById("score-" + sec).textContent = pct + "%";
+    document.getElementById("bar-" + sec).style.width = pct + "%";
+    const chip = document.getElementById("chip-" + sec);
+    chip.classList.remove("heat-low","heat-mid","heat-ok");
+    if (pct >= 70) chip.classList.add("heat-ok");
+    else if (pct >= 50) chip.classList.add("heat-mid");
+    else chip.classList.add("heat-low");
+  });
+}
+
+function updateHeader() {
+  const total = state.questions.length;
+  const answered = Object.keys(state.answers).length;
+  const correct = Object.values(state.answers).filter(a => a.correct).length;
+  document.getElementById("hdr-total").textContent = total;
+  document.getElementById("hdr-answered").textContent = answered;
+  document.getElementById("hdr-acc").textContent = answered > 0
+    ? Math.round(correct/answered*100) + "%"
+    : "—";
+}
+
+// ── Session start ──────────────────────────────────────
+async function startSession() {
+  if (state.loading) return;
+  state.loading = true;
+
+  document.getElementById("main-area").innerHTML = `
+    <div class="loading-state">
+      <div class="spinner"></div>
+      <div>Claude API で100問を生成中…</div>
+      <div style="color:var(--text-muted);margin-top:8px;font-size:11px">GIASスタンダードを参照しながら作成しています</div>
+    </div>`;
+
+  try {
+    // Generate in 10 batches of 10 (avoids JSON truncation from token limits)
+    document.getElementById("main-area").innerHTML = `
+      <div class="loading-state">
+        <div class="spinner"></div>
+        <div id="loading-msg">Claude API で問題を生成中… (0/10)</div>
+        <div style="color:var(--text-muted);margin-top:8px;font-size:11px">GIASスタンダードを参照しながら作成しています</div>
+      </div>`;
+
+    const allBatches = [];
+    for (let i = 0; i < 10; i++) {
+      const batch = await generateQuestions(10, []);
+      allBatches.push(...batch);
+      document.getElementById("loading-msg").textContent = `Claude API で問題を生成中… (${i+1}/10)`;
+    }
+    state.questions = allBatches.map((q,i) => ({ ...q, id: `Q${String(i+1).padStart(3,'0')}` }));
+    state.answers = {};
+    state.currentIdx = 0;
+
+    document.getElementById("bottom-controls").style.display = "flex";
+    renderQuestion(0);
+  } catch(e) {
+    document.getElementById("main-area").innerHTML = `
+      <div class="loading-state">
+        <div style="color:var(--wrong)">${e.message}</div>
+        <button class="btn btn-primary" style="margin-top:16px" onclick="startSession()">再試行</button>
+      </div>`;
+  }
+  state.loading = false;
+}
+
+// ── Add 50 more ────────────────────────────────────────
+async function addMoreQuestions() {
+  if (state.loading) return;
+  state.loading = true;
+  const btn = document.getElementById("btn-add");
+  btn.disabled = true;
+  btn.textContent = "生成中…";
+
+  try {
+    const existingAnswers = Object.entries(state.answers).map(([i, a]) => ({
+      topic: state.questions[i]?.topic || "",
+      section: a.section,
+      correct: a.correct
+    }));
+
+    const newQs = [];
+    for (let i = 0; i < 5; i++) {
+      btn.textContent = `生成中… (${i+1}/5)`;
+      const batch = await generateQuestions(10, existingAnswers);
+      newQs.push(...batch);
+    }
+    const offset = state.questions.length;
+    state.questions.push(...newQs.map((q,i) => ({
+      ...q,
+      id: `Q${String(offset+i+1).padStart(3,'0')}`
+    })));
+
+    btn.textContent = `＋ 50問追加（計${state.questions.length}問）`;
+    renderQuestion(state.currentIdx);
+  } catch(e) {
+    btn.textContent = "失敗 — 再試行";
+    alert(e.message);
+  }
+  btn.disabled = false;
+  state.loading = false;
+}
+
+// ── Export ─────────────────────────────────────────────
+function exportJSON() {
+  const data = {
+    exportedAt: new Date().toISOString(),
+    totalQuestions: state.questions.length,
+    answeredQuestions: Object.entries(state.answers).map(([i, a]) => ({
+      questionId: state.questions[i]?.id,
+      section: a.section,
+      topic: a.topic,
+      userIsCorrect: a.correct,
+      chosen: a.chosen,
+      correct: state.questions[i]?.answer
+    })),
+    sectionStats: state.sessionStats,
+    nextTask: "Analyze weakness and generate next 5 hard questions"
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "cia_part3_session.json";
+  a.click();
+}
+</script>
+</body>
+</html>
